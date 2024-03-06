@@ -194,9 +194,27 @@ The destination **must** be a directory. This is a hard limitation currently & i
 See _Limitations_ section below.
 
 ### Limitations
+#### Directories only
 Targets for `redirect` entries can only be directories; they cannot be files (which might or might not be renamed).
 This is a technical limitation of the current implementation. \
 Steps are being slowly taken to solve this, no promises though.
+
+#### Globbable/asterisk escapes
+Redirected files, which contain an asterisk (`*`) in their actual filename, will be globbed, unless escaped. \
+However, the current escaping mechanism is poor to say the least, and will not properly account for escapes, 
+and will try to redirect the file with the backslash included.
+For example, take the following entry:
+```stowconfig
+[redirect]
+dir/filename-has-*-asterisk-but-shoudln't-be-globbed ::: .
+```
+The intended way to fix the file from being globbed, would be the following:
+```stowconfig
+[redirect]
+dir/filename-has-\*-asterisk-but-shoudln't-be-globbed ::: .
+```
+However, the current mechanism in place will try to find the file named `filename-has-\*-asterisk-but-shoudln't-be-globbed`
+rather than `filename-has-*-asterisk-but-shoudln't-be-globbed`, in the `dir/` directory, which is obviously & provably wrong.
 
 ## Supported platforms
 GNU/Linux only.
