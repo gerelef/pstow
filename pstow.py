@@ -851,7 +851,7 @@ def get_arparser() -> ArgumentParser:
         "--target", "-t",
         type=str,
         required=False,
-        default=f"{os.getcwd()}/..",
+        default=None,
         help="Target (destination) directory links will be linked to."
     )
     ap.add_argument(
