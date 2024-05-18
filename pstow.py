@@ -593,12 +593,11 @@ class Stowconfig:
         self.__cached = False
 
     def _skip_entries_until_block_end(self, sti: TextIO):
-        while (trimmed_newline := next(sti).strip()) != Stowconfig.END_BLOCK_TOK:
-            logger.warning(f"Skipping block entry: {trimmed_newline}")
-            pass
+        while (trimmed_line := next(sti).strip()) != Stowconfig.END_BLOCK_TOK:
+            logger.warning(f"Skipping block entry: {trimmed_line}")
 
     def _handle_if_pkg_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
-        packages = shlex.split(header.removeprefix("if-pkg:::"))
+        packages = shlex.split(header.removeprefix("if-pkg:::").strip())
         if not packages:
             logger.error(f"Skipping invalid if-pkg block, due to no packages being specified after prefix: {header}")
             self._skip_entries_until_block_end(sti)
@@ -611,10 +610,12 @@ class Stowconfig:
                 break
 
         # if everything checks out, continue handling the if-pkg block w/ the current strategy
-        while (trimmed_newline := next(sti).strip()) != Stowconfig.END_BLOCK_TOK:
-            logger.info("Applying if-pkg entry: " + trimmed_newline)
-            strategy(trimmed_newline)
-
+        while (trimmed_line := next(sti).strip()) != Stowconfig.END_BLOCK_TOK:
+            # skip empty lines, and comments (which are line separated)
+            if not trimmed_line or self._is_comment(trimmed_line):
+                continue
+            logger.info("Applying if-pkg entry: " + trimmed_line)
+            strategy(trimmed_line)
 
     def _handle_ignore_lines(self, entry: str) -> None:
         self.__ignorables.extend(Stowconfig.parse_glob_line(self.parent, entry))
