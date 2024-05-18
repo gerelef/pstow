@@ -531,17 +531,12 @@ class Tree:
 
 
 class RedirectEntry:
-    REDIRECT_GLOBBABLE_REGEX = re.compile(r"(?<!\\)\*")
-
     def __init__(self, src: VPath | Tree, redirect: StrPath):
         self.__src = src
         self.__redirect = redirect
 
     def __str__(self) -> str:
         return f"RedirectEntry(src='{self.src}'), redirect={self.redirect}"
-
-    def _is_globbable(self) -> bool:
-        return bool(RedirectEntry.REDIRECT_GLOBBABLE_REGEX.search(self.redirect))
 
     @property
     def src(self) -> VPath | Tree:
@@ -555,12 +550,8 @@ class RedirectEntry:
         """
         Resolve the redirectable for all valid Tree targets and return them.
         """
-        # in cases where the path isn't a globbable, we don't want to check for matches or any existence
-        #  by using parse_glob_line
-        #  we just want to join the target/redirect/src.name together, even if it doesn't exist, since it's still
-        #  a concrete path (even if it doesn't exist, it may be created in the future)
-        # the second reason for this is that lines that aren't globbables
-        if not self._is_globbable():
+        # if the path doesn't exist, regardless if it's a globbable or not, return its parent
+        if not list(Stowconfig.parse_glob_line(target, self.redirect)):
             yield VPath(os.path.join(target, self.redirect, self.src.name)).expanduser().parent.absolute()
             return
 
@@ -965,9 +956,7 @@ def get_arparser() -> ArgumentParser:
     ap.add_argument(
         "--exclude", "-e",
         required=False,
-        type=str,
         nargs="+",
-        action="append",
         default=[],
         help="Exclude (ignore) a specific directory when copying the tree. Multiple values can be given. "
              "Symlinks are not supported as exclusion criteria."
