@@ -5,6 +5,7 @@
 import getpass
 import logging
 import shlex
+import shutil
 import math
 import os
 import re
@@ -16,7 +17,7 @@ from copy import copy
 from glob import iglob
 from itertools import zip_longest
 from pathlib import PosixPath
-from typing import Iterable, final, Self, Optional, Callable, Iterator
+from typing import Iterable, final, Self, Optional, Callable, Iterator, TextIO
 
 type StrPath = str | os.PathLike[str] | PosixPath
 
@@ -571,6 +572,9 @@ class Stowconfig:
     IGNORE_SECTION_HEADER_TOK = "[ignore]"
     REDIRECT_SECTION_HEADER_TOK = "[redirect]"
 
+    IF_PKG_BLOCK_REGEX = re.compile(r"\[(if-pkg)(:::)(.+)]")
+
+    END_BLOCK_TOK = "[end]"
     COMMENT_PREFIX_TOK = "//"
 
     ERR_STRATEGY: Callable[[Exception], None] = lambda e: None
@@ -588,14 +592,38 @@ class Stowconfig:
 
         self.__cached = False
 
+    def _skip_entries_until_block_end(self, sti: TextIO):
+        while (trimmed_newline := next(sti).strip()) != Stowconfig.END_BLOCK_TOK:
+            logger.warning(f"Skipping block entry: {trimmed_newline}")
+            pass
+
+    def _handle_if_pkg_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
+        packages = shlex.split(header.removeprefix("if-pkg:::"))
+        if not packages:
+            logger.error(f"Skipping invalid if-pkg block, due to no packages being specified after prefix: {header}")
+            self._skip_entries_until_block_end(sti)
+
+        exists = True
+        for package in packages:
+            exists = exists and shutil.which(package)
+            if not exists:
+                self._skip_entries_until_block_end(sti)
+                break
+
+        # if everything checks out, continue handling the if-pkg block w/ the current strategy
+        while (trimmed_newline := next(sti).strip()) != Stowconfig.END_BLOCK_TOK:
+            logger.info("Applying if-pkg entry: " + trimmed_newline)
+            strategy(trimmed_newline)
+
+
     def _handle_ignore_lines(self, entry: str) -> None:
         self.__ignorables.extend(Stowconfig.parse_glob_line(self.parent, entry))
 
     def _handle_redirect_lines(self, entry: str) -> None:
         entry_list = shlex.split(entry)
         if len(entry_list) != 3 or entry_list[1].strip() != ":::":
-            logger.warning(f"Skipping invalid redirect entry: {entry}")
-            logger.warning(f"NOT following the format \"my/path/file.txt\" ::: \"to/another/path/file.txt\" !")
+            logger.error(f"Skipping invalid redirect entry: {entry}")
+            logger.error(f"NOT following the format \"my/path/file.txt\" ::: \"to/another/path/file.txt\" !")
             return None
         self.__redirectables_sanitized = False
         # both are globbable: a group of elements can be matched to a group of targets (N:M relationship)
@@ -627,6 +655,10 @@ class Stowconfig:
                     case Stowconfig.REDIRECT_SECTION_HEADER_TOK:
                         strategy = self._handle_redirect_lines
                         continue  # eat line because it's a header
+                    case _:
+                        # handle cases that are not computable @ 'compile' time
+                        if Stowconfig.IF_PKG_BLOCK_REGEX.fullmatch(trimmed_line):
+                            self._handle_if_pkg_block(strategy, trimmed_line, sti)
 
                 strategy(trimmed_line)
 
