@@ -109,8 +109,10 @@ class VPath(PosixPath):
 class Tree:
     REAL_USER_HOME = f"{str(VPath().home())}"
 
-    def __init__(self, tld: VPath):
+    def __init__(self, tld: VPath, profile: str = "default"):
         self.__tld: VPath = tld.absolute()
+        self.profile: str = profile
+
         self.__tree: list[Self | VPath] = []
         self.__stowignore: Optional[Stowconfig] = None
 
@@ -251,7 +253,7 @@ class Tree:
         for fn in file_names:
             pp = VPath(os.path.join(self.absolute(), fn))
             if fn == Stowconfig.STOWIGNORE_FN:
-                self.__stowignore = Stowconfig(pp)
+                self.__stowignore = Stowconfig(pp, self.profile)
 
             self.tree = pp
 
@@ -557,7 +559,7 @@ class RedirectEntry:
         #  by using parse_glob_line
         #  we just want to join the target/redirect/src.name together, even if it doesn't exist, since it's still
         #  a concrete path (even if it doesn't exist, it may be created in the future)
-        # the second reason for this if is that lines that aren't globabbles,
+        # the second reason for this is that lines that aren't globbables
         if not self._is_globbable():
             yield VPath(os.path.join(target, self.redirect, self.src.name)).expanduser().parent.absolute()
             return
@@ -573,18 +575,22 @@ class Stowconfig:
     REDIRECT_SECTION_HEADER_TOK = "[redirect]"
 
     IF_PKG_BLOCK_REGEX = re.compile(r"\[(if-pkg)(:::)(.+)]")
+    IF_NOT_PKG_BLOCK_REGEX = re.compile(r"\[(if-not-pkg)(:::)(.+)]")
+    IF_PROFILE_BLOCK_REGEX = re.compile(r"\[(if-profile)(:::)(.+)]")
+    IF_NOT_PROFILE_BLOCK_REGEX = re.compile(r"\[(if-not-profile)(:::)(.+)]")
 
     END_BLOCK_TOK = "[end]"
     COMMENT_PREFIX_TOK = "//"
 
     ERR_STRATEGY: Callable[[Exception], None] = lambda e: None
 
-    def __init__(self, fstowignore: VPath):
+    def __init__(self, fstowignore: VPath, profile: str = "default"):
         """
         @param fstowignore: stowignore VPath
         """
         self.fstowignore = fstowignore
         self.parent = fstowignore.parent
+        self.profile: str = profile
 
         self.__ignorables: list[VPath] = []
         self.__redirectables: list[RedirectEntry] = []
@@ -592,36 +598,65 @@ class Stowconfig:
 
         self.__cached = False
 
-    def _skip_entries_until_block_end(self, sti: TextIO):
+    def _skip_entries_until_block_end(self, sti: TextIO, supress=False):
         while (trimmed_line := next(sti).strip()) != Stowconfig.END_BLOCK_TOK:
-            logger.warning(f"Skipping block entry: {trimmed_line}")
+            if not supress:
+                logger.warning(f"Skipping block entry: {trimmed_line}")
 
-    def _handle_if_pkg_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
-        packages = shlex.split(header.removeprefix("if-pkg:::").strip())
-        if not packages:
-            logger.error(f"Skipping invalid if-pkg block, due to no packages being specified after prefix: {header}")
+    def _handle_if_block(self, strategy: Callable[[str], None], sti: TextIO,
+                         header: str, prefix_to_strip: str, condition: Callable[[list[str]], bool]):
+        contents: list[str] = shlex.split(
+            header.removeprefix("[").removesuffix("]").removeprefix(prefix_to_strip).strip()
+        )
+        if not contents:
+            logger.error(
+                f"Skipping invalid {header} block due to unspecified contents after prefix."
+            )
             self._skip_entries_until_block_end(sti)
 
-        exists = True
-        for package in packages:
-            exists = exists and shutil.which(package)
-            if not exists:
-                self._skip_entries_until_block_end(sti)
-                break
+        if not condition(contents):
+            logger.warning(f"Couldn't fulfill condition for {header}. Skipping block contents...")
+            self._skip_entries_until_block_end(sti, supress=True)
+            return
 
         # if everything checks out, continue handling the if-pkg block w/ the current strategy
         while (trimmed_line := next(sti).strip()) != Stowconfig.END_BLOCK_TOK:
             # skip empty lines, and comments (which are line separated)
             if not trimmed_line or self._is_comment(trimmed_line):
                 continue
-            logger.info("Applying if-pkg entry: " + trimmed_line)
+            logger.info(f"Applying {header} entry: {trimmed_line}")
             strategy(trimmed_line)
+
+    def _handle_if_pkg_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
+        self._handle_if_block(
+            strategy, sti, header, "if-pkg:::",
+            lambda packages: all(map(shutil.which, packages))
+        )
+
+    def _handle_if_not_pkg_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
+        self._handle_if_block(
+            strategy, sti, header, "if-not-pkg:::",
+            lambda packages: not all(map(shutil.which, packages))
+        )
+
+    def _handle_if_profile_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
+        self._handle_if_block(
+            strategy, sti, header, "if-profile:::",
+            lambda profiles: self.profile in profiles
+        )
+
+    def _handle_if_not_profile_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
+        self._handle_if_block(
+            strategy, sti, header, "if-not-profile:::",
+            lambda profiles: self.profile not in profiles
+        )
 
     def _handle_ignore_lines(self, entry: str) -> None:
         self.__ignorables.extend(Stowconfig.parse_glob_line(self.parent, entry))
 
     def _handle_redirect_lines(self, entry: str) -> None:
         entry_list = shlex.split(entry)
+        # delimiter should be in the middle as :::
         if len(entry_list) != 3 or entry_list[1].strip() != ":::":
             logger.error(f"Skipping invalid redirect entry: {entry}")
             logger.error(f"NOT following the format \"my/path/file.txt\" ::: \"to/another/path/file.txt\" !")
@@ -630,7 +665,7 @@ class Stowconfig:
         # both are globbable: a group of elements can be matched to a group of targets (N:M relationship)
         #  however, we can't evaluate destination globbables (if they even *are* globbables) right now, since we
         #  don't have the target, which is a requirement for matching this to paths
-        s_src, s_dst = entry_list[0], entry_list[1]
+        s_src, s_dst = entry_list[0], entry_list[-1]  # first & last
         for redirected in Stowconfig.parse_glob_line(self.parent, s_src):
             self.__redirectables.append(RedirectEntry(redirected, s_dst))
 
@@ -660,6 +695,16 @@ class Stowconfig:
                         # handle cases that are not computable @ 'compile' time
                         if Stowconfig.IF_PKG_BLOCK_REGEX.fullmatch(trimmed_line):
                             self._handle_if_pkg_block(strategy, trimmed_line, sti)
+                            continue  # eat line because it's an [end] tok
+                        if Stowconfig.IF_NOT_PKG_BLOCK_REGEX.fullmatch(trimmed_line):
+                            self._handle_if_not_pkg_block(strategy, trimmed_line, sti)
+                            continue  # eat line because it's an [end] tok
+                        if Stowconfig.IF_PROFILE_BLOCK_REGEX.fullmatch(trimmed_line):
+                            self._handle_if_profile_block(strategy, trimmed_line, sti)
+                            continue  # eat line because it's an [end] tok
+                        if Stowconfig.IF_NOT_PROFILE_BLOCK_REGEX.fullmatch(trimmed_line):
+                            self._handle_if_not_profile_block(strategy, trimmed_line, sti)
+                            continue  # eat line because it's an [end] tok
 
                 strategy(trimmed_line)
 
@@ -718,7 +763,8 @@ class Stower:
                  force=False,
                  overwrite_others=False,
                  make_parents=False,
-                 no_redirects=False):
+                 no_redirects=False,
+                 profile="default"):
         self.src = source
         self.dest = destination
         self.skippables = skippables
@@ -730,12 +776,12 @@ class Stower:
         self.no_redirects = no_redirects
 
         # aka working tree directory, reflects the current filesystem structure
-        self.src_tree: Tree = Tree(self.src)
+        self.src_tree: Tree = Tree(self.src, profile=profile)
 
     def _prompt(self) -> bool:
         """
         Prompt the user for an input, [Y/n].
-        @return:
+        @return: True if user selects yes, False for any other case.
         """
         logger.info(f"{self.src_tree.repr()}")
         logger.info("The following action is not reversible.")
@@ -868,7 +914,7 @@ class Stower:
 
 def get_arparser() -> ArgumentParser:
     ap = ArgumentParser(
-        "A spiritual reimplementation, of GNU Stow."
+        "A spiritual reimplementation of GNU Stow, but simpler, for tinkerers."
     )
     ap.add_argument(
         "--source", "-s",
@@ -910,8 +956,8 @@ def get_arparser() -> ArgumentParser:
         required=False,
         action="store_true",
         default=False,
-        help="Ovewrite links/files owned by other users than the current one."
-             "Default behaviour is to not overwrite files not owned by the current user."
+        help="Ovewrite links/files owned by other users than the current one. "
+             "Default behaviour is to not overwrite files not owned by the current user. "
              "Functionally the same as --no-preserve-root in the rm command."
     )
     ap.add_argument(
@@ -921,11 +967,19 @@ def get_arparser() -> ArgumentParser:
         nargs="+",
         action="append",
         default=[],
-        help="Exclude (ignore) a specific directory when copying the tree. Multiple values can be given."
+        help="Exclude (ignore) a specific directory when copying the tree. Multiple values can be given. "
              "Symlinks are not supported as exclusion criteria."
     )
     ap.add_argument(
-        "--no-parents", "-p",
+        "--profile", "-p",
+        required=False,
+        type=str,
+        default="default",
+        help="Profile to use when loading .stowconfigs."
+             "This will affect all if-profile and if-not-profile blocks accordingly. "
+    )
+    ap.add_argument(
+        "--no-parents", "-n",
         required=False,
         action="store_true",
         default=False,
@@ -940,7 +994,7 @@ def get_arparser() -> ArgumentParser:
     )
     ap.add_subparsers(dest="command", required=False).add_parser(
         "status",
-        help="Echo the current status of the stow src."
+        help="Echo the current status of the stow source."
     )
 
     return ap
@@ -983,6 +1037,7 @@ def main():
             overwrite_others=args.overwrite_others,
             make_parents=not args.no_parents,
             no_redirects=args.no_redirects,
+            profile=args.profile
         ).stow(
             interactive=not args.yes,
             dry_run=args.command == "status"
