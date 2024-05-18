@@ -4,6 +4,7 @@
 #  then input() will use it to provide elaborate line editing and history features."
 import getpass
 import logging
+import shlex
 import math
 import os
 import re
@@ -572,10 +573,6 @@ class Stowconfig:
 
     COMMENT_PREFIX_TOK = "//"
 
-    REDIRECT_LINE_REGEX = re.compile(r"\"?(.+)\"?\s+(:::)\s+\"?(.+)\"?")
-    REDIRECT_LINE_REGEX_SOURCE_GROUP = 1
-    REDIRECT_LINE_REGEX_TARGET_GROUP = 3
-
     ERR_STRATEGY: Callable[[Exception], None] = lambda e: None
 
     def __init__(self, fstowignore: VPath):
@@ -595,16 +592,16 @@ class Stowconfig:
         self.__ignorables.extend(Stowconfig.parse_glob_line(self.parent, entry))
 
     def _handle_redirect_lines(self, entry: str) -> None:
-        fm = Stowconfig.REDIRECT_LINE_REGEX.fullmatch(entry)
-        if not fm:
-            logger.warning(f"Skipping invalid redirect \n{entry}")
+        entry_list = shlex.split(entry)
+        if len(entry_list) != 3 or entry_list[1].strip() != ":::":
+            logger.warning(f"Skipping invalid redirect entry: {entry}")
+            logger.warning(f"NOT following the format \"my/path/file.txt\" ::: \"to/another/path/file.txt\" !")
             return None
         self.__redirectables_sanitized = False
         # both are globbable: a group of elements can be matched to a group of targets (N:M relationship)
         #  however, we can't evaluate destination globbables (if they even *are* globbables) right now, since we
         #  don't have the target, which is a requirement for matching this to paths
-        s_src = fm.group(Stowconfig.REDIRECT_LINE_REGEX_SOURCE_GROUP)
-        s_dst = fm.group(Stowconfig.REDIRECT_LINE_REGEX_TARGET_GROUP)
+        s_src, s_dst = entry_list[0], entry_list[1]
         for redirected in Stowconfig.parse_glob_line(self.parent, s_src):
             self.__redirectables.append(RedirectEntry(redirected, s_dst))
 
