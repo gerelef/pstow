@@ -4,13 +4,13 @@
 #  then input() will use it to provide elaborate line editing and history features."
 import getpass
 import logging
-import shlex
-import shutil
 import math
 import os
 import re
 # noinspection PyUnresolvedReferences
 import readline
+import shlex
+import shutil
 import sys
 from argparse import ArgumentParser
 from copy import copy
@@ -565,13 +565,14 @@ class Stowconfig:
     IGNORE_SECTION_HEADER_TOK = "[ignore]"
     REDIRECT_SECTION_HEADER_TOK = "[redirect]"
 
-    IF_PKG_BLOCK_REGEX = re.compile(r"\[(if-pkg)(:::)(.+)]")
-    IF_NOT_PKG_BLOCK_REGEX = re.compile(r"\[(if-not-pkg)(:::)(.+)]")
-    IF_PROFILE_BLOCK_REGEX = re.compile(r"\[(if-profile)(:::)(.+)]")
-    IF_NOT_PROFILE_BLOCK_REGEX = re.compile(r"\[(if-not-profile)(:::)(.+)]")
+    IF_PKG_BLOCK_REGEX = re.compile(r"\[(if-pkg:::)(.+)]")
+    IF_NOT_PKG_BLOCK_REGEX = re.compile(r"\[(if-not-pkg:::)(.+)]")
+    IF_PROFILE_BLOCK_REGEX = re.compile(r"\[(if-profile:::)(.+)]")
+    IF_NOT_PROFILE_BLOCK_REGEX = re.compile(r"\[(if-not-profile:::)(.+)]")
 
     END_BLOCK_TOK = "[end]"
     COMMENT_PREFIX_TOK = "//"
+    UNIGNORE_PREFIX_TOK = "!!"
 
     ERR_STRATEGY: Callable[[Exception], None] = lambda e: None
 
@@ -644,7 +645,25 @@ class Stowconfig:
         )
 
     def _handle_ignore_lines(self, entry: str) -> None:
-        self.__ignorables.extend(Stowconfig.parse_glob_line(self.parent, entry))
+        def flatten_tree(iterable_tree: Tree | VPath) -> Iterable[VPath]:
+            """
+            Flatten any tree & return all its contents
+            """
+            if isinstance(iterable_tree, VPath) and not iterable_tree.is_dir():
+                return [iterable_tree]
+            contents = []
+            for child in iterable_tree.absolute().iterdir():
+                contents.extend(flatten_tree(child))
+            return contents
+
+        # if it's an inverted token, invert & bail!
+        if entry.startswith(Stowconfig.UNIGNORE_PREFIX_TOK):
+            for it in Stowconfig.parse_glob_line(self.parent, entry.removeprefix(Stowconfig.UNIGNORE_PREFIX_TOK)):
+                [vp in self.__ignorables and self.__ignorables.remove(vp) for vp in flatten_tree(it)]
+            return
+
+        for it in Stowconfig.parse_glob_line(self.parent, entry):
+            self.__ignorables.extend(flatten_tree(it))
 
     def _handle_redirect_lines(self, entry: str) -> None:
         entry_list = shlex.split(entry)
