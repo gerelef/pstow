@@ -598,6 +598,7 @@ class Stowconfig:
 
         self.__cached = False
 
+    # noinspection PyMethodMayBeStatic
     def _skip_entries_until_block_end(self, sti: TextIO, supress=False):
         while (trimmed_line := next(sti).strip()) != Stowconfig.END_BLOCK_TOK:
             if not supress:
@@ -669,6 +670,7 @@ class Stowconfig:
         for redirected in Stowconfig.parse_glob_line(self.parent, s_src):
             self.__redirectables.append(RedirectEntry(redirected, s_dst))
 
+    # noinspection PyMethodMayBeStatic
     def _is_comment(self, line: str) -> bool:
         return line.startswith(Stowconfig.COMMENT_PREFIX_TOK)
 
@@ -865,10 +867,10 @@ class Stower:
         if dry_run:
             logger.info(f"{self.src_tree.repr()}")
         # optional seventh step: ask for user permission if interactive
-        # if the current run is interactive, must be false
-        # if the current run is interactive, and is a dry run, must be false
-        # if the current run isn't interactive, and is a dry run, must be false
-        # if the current run isn't interactive, and isn't a dry run, must be true
+        # - if the current run is interactive, must be false
+        # - if the current run is interactive, and is a dry run, must be false
+        # - if the current run isn't interactive, and is a dry run, must be false
+        # - if the current run isn't interactive, and isn't a dry run, must be true
         approved = not interactive and not dry_run
         if not dry_run and interactive:
             approved = self._prompt()
@@ -1051,7 +1053,7 @@ def main():
 
 
 if __name__ == "__main__":
-    # set for reaaaaally deep trees
+    # set for really deep trees
     sys.setrecursionlimit(10_000_000)
     logger = get_logger()
 
