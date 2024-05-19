@@ -2,7 +2,6 @@
 # From the documentation:
 # >"If the readline module was loaded,
 #  then input() will use it to provide elaborate line editing and history features."
-import getpass
 import logging
 import math
 import os
@@ -773,7 +772,6 @@ class Stower:
                  destination: VPath,
                  skippables: list[VPath] = None,
                  force=False,
-                 overwrite_others=False,
                  make_parents=False,
                  no_redirects=False,
                  profile="default"):
@@ -783,7 +781,6 @@ class Stower:
 
         # empty flags
         self.force = force
-        self.overwrite_others = overwrite_others
         self.make_parents = make_parents
         self.no_redirects = no_redirects
 
@@ -826,9 +823,6 @@ class Stower:
         if self.src == self.dest:
             raise PathError("Source cannot be the same as destination!")
 
-        # effective user id name, to be compared to .owner()
-        euidn = getpass.getuser()
-
         # first step: create the tree of the entire src folder
         self.src_tree.traverse()
         # early exit for empty trees
@@ -859,17 +853,6 @@ class Stower:
         #  trimming all useless paths
         self.src_tree.vtrim_ignored()
 
-        # (optional) fifth step: apply extra business rules to the tree
-        if not self.overwrite_others:
-            # ignore items owned by other users
-            # if the euid (effective user id) name is different from the folder's owner name, trim it
-            self.src_tree.vtrim_file_rule(
-                lambda pp, _: pp.exists(follow_symlinks=True) and pp.owner() != euidn
-            )
-            self.src_tree.vtrim_branch_rule(
-                lambda br, _: br.absolute().exists(follow_symlinks=True) and br.absolute().owner() != euidn
-            )
-
         # sixth step: apply preliminary business rule to the tree:
         #  trim empty branches to avoid creation of directories whose contents are ignored entirely
         self.src_tree.vtrim_branch_rule(lambda br, __: len(br) == 0)
@@ -896,12 +879,6 @@ class Stower:
         if self.force:
             # overwrite everything rule
             exists_rule = lambda dpp: True
-        # overwite only our own links rule
-        #  .exists() is here for sanity reasons, because it's not a given that
-        #  the file does actually exist, and due to lazy eval, this will work even if it isn't there
-        others_rule = lambda dpp: dpp.owner() == euidn if dpp.exists(follow_symlinks=True) else True
-        if self.overwrite_others:
-            others_rule = lambda dpp: True
         # overwrite if not in the original tree rule
         #  here, we're comparing the absolute VPath of the original tree,
         #  with the target (destination) VPath
@@ -919,7 +896,6 @@ class Stower:
             self.dest,
             make_parents=self.make_parents,
             fn=lambda dpp: exists_rule(dpp) and
-                           others_rule(dpp) and
                            keep_original_rule(dpp),
         )
 
@@ -962,15 +938,6 @@ def get_arparser() -> ArgumentParser:
         action="store_true",
         default=False,
         help="Automatically assume 'yes' for any user prompt. Dangerous flag, possibly destructive!"
-    )
-    ap.add_argument(
-        "--overwrite-others", "-o",
-        required=False,
-        action="store_true",
-        default=False,
-        help="Ovewrite links/files owned by other users than the current one. "
-             "Default behaviour is to not overwrite files not owned by the current user. "
-             "Functionally the same as --no-preserve-root in the rm command."
     )
     ap.add_argument(
         "--exclude", "-e",
@@ -1044,7 +1011,6 @@ def main():
             source, destination,
             skippables=excluded,
             force=args.force,
-            overwrite_others=args.overwrite_others,
             make_parents=not args.no_parents,
             no_redirects=args.no_redirects,
             profile=args.profile
