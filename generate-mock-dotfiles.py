@@ -104,10 +104,10 @@ def generate_lorem_ipsum(count: int) -> str:
     return txt + "."
 
 
-def generate_random_name(name_pool: list[str], postfix_pool: list[str]) -> str:
+def generate_random_name(name_pool: list[str] | None, postfix_pool: list[str] | None) -> str:
     name = "".join([c for c in random.choices(string.ascii_lowercase, k=randint(3, 7))])
-    postfix = random.choice(postfix_pool)
-    if randint(1, 4) == 1:
+    postfix = random.choice(postfix_pool) if postfix_pool else ""
+    if name_pool and randint(1, 4) == 1:
         name = random.choice(name_pool)
     if randint(1, 3) == 1:
         postfix = ""
@@ -162,7 +162,12 @@ def generate_manpages_dir(root: Path) -> Path:
 
 def generate_dotgit_dir(root: Path) -> Path:
     dotgit_dir = Path(str(root.absolute()) + "/.git")
-    generate_file_structure(dotgit_dir, randint(100, 500))
+    generate_file_structure(dotgit_dir, randint(50, 200))
+    for i in range(100):
+        gen_dir = randint(1, 5) == 1
+        if gen_dir:
+            random_dotgit_subdir = Path(str(dotgit_dir.absolute()) + f"/{generate_random_name(None, None)}")
+            generate_file_structure(random_dotgit_subdir, randint(40, 70))
     return dotgit_dir
 
 
