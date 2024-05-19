@@ -126,35 +126,29 @@ def generate_file_structure(parent: Path, num: int) -> None:
         print("Created " + str(new_file))
 
 
-if __name__ == "__main__":
-    root = Path(os.getcwd() + "/dotfiles")
+def generate_root(root: Path) -> None:
     if root.exists(follow_symlinks=False):
         print("Mock dotfiles exist, bailing for safety!")
         exit(0)
-
     root.mkdir(exist_ok=True)
     for unique_file in UNIQUE_FILES:
         file = Path(str(root.absolute()) + "/" + unique_file)
         file.touch(exist_ok=True)
         with open(file, "w") as f:
             f.writelines(generate_lorem_ipsum(randint(5, 150)))
-    generate_file_structure(root, 3)
 
+
+def generate_dotconfig_dir(root: Path) -> Path:
     dotconfigs_dir = Path(str(root.absolute()) + "/.config")
     dotconfigs_dir.mkdir()
     for config_dir_name in COMMON_CONFIG_DIRS:
         common_config_dir = Path(str(dotconfigs_dir.absolute()) + "/" + config_dir_name)
         generate_file_structure(common_config_dir, randint(1, 4))
 
-    dotscripts_dir = Path(str(root.absolute()) + "/scripts")
-    generate_file_structure(dotscripts_dir, randint(4, 34))
-    for unique_file in UNIQUE_SCRIPTS:
-        file = Path(str(dotscripts_dir.absolute()) + "/" + unique_file)
-        file.touch(exist_ok=True)
+    return dotconfigs_dir
 
-    dotgit_dir = Path(str(root.absolute()) + "/.git")
-    generate_file_structure(dotgit_dir, randint(100, 500))
 
+def generate_manpages_dir(root: Path) -> Path:
     dotmanpages_dir = Path(str(root.absolute()) + "/manpages")
     generate_file_structure(dotmanpages_dir, randint(1, 3))
 
@@ -163,3 +157,28 @@ if __name__ == "__main__":
 
     dotman7_dir = Path(str(dotmanpages_dir.absolute()) + "/man7")
     generate_file_structure(dotman7_dir, randint(30, 70))
+    return dotmanpages_dir
+
+
+def generate_dotgit_dir(root: Path) -> Path:
+    dotgit_dir = Path(str(root.absolute()) + "/.git")
+    generate_file_structure(dotgit_dir, randint(100, 500))
+    return dotgit_dir
+
+
+def generate_scripts_dir(root: Path) -> Path:
+    dotscripts_dir = Path(str(root.absolute()) + "/scripts")
+    generate_file_structure(dotscripts_dir, randint(4, 34))
+    for unique_file in UNIQUE_SCRIPTS:
+        file = Path(str(dotscripts_dir.absolute()) + "/" + unique_file)
+        file.touch(exist_ok=True)
+    return dotscripts_dir
+
+
+if __name__ == "__main__":
+    root = Path(os.getcwd() + "/dotfiles")
+    generate_root(root)
+    generate_dotconfig_dir(root)
+    generate_manpages_dir(root)
+    generate_dotgit_dir(root)
+    generate_scripts_dir(root)
