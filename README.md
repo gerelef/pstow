@@ -500,8 +500,5 @@ More details on `if-directives`:
 [end]
 ```
 
-## planned features
-- [ ] profile-specific sections, e.g. `[profilename:::ignore]`
-
 ## Supported platforms
 GNU/Linux only.

@@ -16,7 +16,7 @@ from copy import copy
 from glob import iglob
 from itertools import zip_longest
 from pathlib import PosixPath
-from typing import Iterable, final, Self, Optional, Callable, Iterator, TextIO, Tuple, Any
+from typing import Iterable, final, Self, Optional, Callable, Iterator, TextIO
 
 type StrPath = str | os.PathLike[str] | PosixPath
 
