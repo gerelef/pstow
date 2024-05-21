@@ -66,8 +66,8 @@ Lets change that! We're going to be verbose, manually excluding everything, once
 ───> macho.sh
 WARNING: Aborting.
 ```
-The status output was whatever was in the root dotfiles directory. Great! This means we can explicitly, on-demand,
-exclude whatever files we don't want to symlink manually. \
+The status output was whatever was in the root dotfiles directory. \
+Great! This means we can explicitly, on-demand, exclude whatever files we don't want to symlink manually. \
 However, it'd be alot cooler if we could do this automatically rather than remembering random shell incantations... \
 Let's start by creating a `.stowconfig` in the root dotfiles directory. \
 If it exists, don't worry! Just overwrite the contents & paste the following:
@@ -96,7 +96,7 @@ WARNING: Aborting.
 ```
 Our output is the same as if we manually excluded the aforementioned directories. \
 This means our `pstow` configuration works! \
-Now, lets try to exclude our `.*rc` files located in `./scripts`.
+Now, lets try to exclude our `.*rc` files located in `./scripts`. \
 Update `.stowconfig` so that it looks like the following & rerun with `../pstow.py --target ~ status`:
 ```stowconfig
 *.md
@@ -130,15 +130,17 @@ WARNING: Aborting.
 We have successfully un-ignored our .*rc files! \
 Keep in mind, is that since the file is read top-to-bottom, \
 and the evaluations are being done on a line-by-line basis, \
-if you write the un-ignore line before the ignore declaration, the file won't be unignored. 
+if you write the un-ignore line before the ignore declaration, the file won't be unignored. \
 The following step is to move them to the root dotfile directory. 
 
-Typically, people recommend a bare git repo, but that couples the dotfile structure to the filesystem structure.
-This makes things coupled, and difficult to keep track of; most people end up with endless nestings, when they just want
+Typically, people recommend a bare git repo, but that couples the dotfile structure to the filesystem structure. \
+This makes things coupled, and difficult to keep track of; \
+most people end up with endless nestings, when they just want
 a couple of files, 3 or 4 paths deeper, or a file one level up.
 
-We're going to learn about redirects, also referred at as virtual files. 
-Let's start by adding a redirect section! Update your .stowconfig so that it looks like this & rerun as usual:
+To deal with this common issue, we're going to learn about redirects, also referred to as virtual files. \
+Let's start by adding a redirect section! \
+Update your .stowconfig so that it looks like this & rerun as usual:
 ```stowconfig
 *.md
 .git/
@@ -170,12 +172,13 @@ scripts/.*rc ::: .
 ───> .zshrc
 WARNING: Aborting
 ```
-As you can see, we have `[redirect]`ed every `.*rc` file one level up, the same level as the `.stowconfig`, \
-denoted by the dot (`.`) \
-**Files cannot be renamed this way, only moved.** This is a hard limitation; you cannot change the destination name. \
+As you can see, we have `[redirect]`ed every `.*rc` file one level up, \
+the same level as the `.stowconfig`, denoted by the dot (`.`) \
+**Files cannot be renamed this way, only moved.** \
+This is a hard limitation; you cannot change the destination name. \
 It's always assumed the destination is a directory, and will be created on demand if it doesn't exist, when applying pstow.
 
-Suppose we have a case, we're going to use a firefox `user.js` config file as a real world scenario,
+Suppose we have a case, we're going to use a firefox `user.js` config file as a real world scenario, \
 where we know what the path's going to look like, but since the directory name is automatically generated,
 we cannot pinpoint a redirect to any specific path. \
 To solve this problem, globbable redirects have been added. \
@@ -340,7 +343,7 @@ Of course, `nano` exists, but `.zhrc` AND `some-other-package` do not, so their 
 
 Finally, we'll talk about profiles & their directives.
 
-Suppose I wouldn't want my `.jwmrc` config file in the firefox directories when deploying this on my work partition or PC.
+Suppose I wouldn't want my `.jwmrc` config file in the firefox directories when deploying this on my work partition or PC. \
 Let's edit our .stowconfig accordingly:
 ```stowconfig
 *.md
@@ -391,11 +394,11 @@ WARNING: Couldn't fulfill condition for [if-not-profile:::work]. Skipping block 
 ───> .zshrc
 WARNING: Aborting.
 ```
-When running with `--profile work`, the `.jwmrc` won't be applied, meaning we can keep one configuration file for \
-multiple deployments in different systems!
+When running with `--profile work`, the `.jwmrc` won't be applied, \
+meaning we can keep one configuration file for multiple deployments in different systems!
 
-This concludes the entire tutorial regarding `pstow`; next step is looking at the `--help` prompt, and checking out \
-deployments in production. A good starter for the latter would be [my personal dotfiles](https://github.com/gerelef/dotfiles).
+This concludes the entire tutorial regarding `pstow`; next step is looking at the `--help` prompt, \
+and checking out deployments in production. A good starter for the latter would be [my personal dotfiles](https://github.com/gerelef/dotfiles).
 
 ## --help
 ```
@@ -432,12 +435,12 @@ options:
 The first section is always the `[ignore]` section, as implied by the lack of header. \
 The second section `[redirect]` is inferred from the explicit header.
 
-"Unignores" should be evaluated after a file has been ignored, otherwise they will *not* apply. 
+"Unignores" should be evaluated after a file has been ignored, otherwise they will *not* apply. \
 They're evaluated as-is; no reordering happens on any level, so the onus is on you to make sure they work right.
 
 Comments are allowed after a newline; they cannot be inlined.
 
-Syntax for `redirect` entries must match the following regex to be valid: `\"?(.+)\"?\s+(:::)\s+\"?(.+)\"?`
+Syntax for `redirect` entries must match the following regex to be valid: `\"?(.+)\"?\s+(:::)\s+\"?(.+)\"?` \
 The redirect destination **must** be a directory. This is a semantic limitation, and will not be raised.
 
 Profile is considered `default` if omitted.
