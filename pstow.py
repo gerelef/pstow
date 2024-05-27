@@ -595,13 +595,15 @@ class Stowconfig:
             if not supress:
                 logger.warning(f"Skipping block entry: {trimmed_line}")
 
-    def _handle_if_block(self, strategy: Callable[[str, ...], None], sti: TextIO,
+    def _handle_if_block(self, strategy: Callable[[str], None], sti: TextIO,
                          header: str, prefix_to_strip: str, condition: Callable[[list[str]], bool]):
         contents: list[str] = shlex.split(
             header.removeprefix("[").removesuffix("]").removeprefix(prefix_to_strip).strip()
         )
         if not contents:
-            logger.error(f"Skipping invalid {header} block due to unspecified contents after prefix.")
+            logger.error(
+                f"Skipping invalid {header} block due to unspecified contents after prefix."
+            )
             self._skip_entries_until_block_end(sti)
 
         if not condition(contents):
@@ -611,36 +613,37 @@ class Stowconfig:
 
         # if everything checks out, continue handling the if-pkg block w/ the current strategy
         while (trimmed_line := next(sti).strip()) != Stowconfig.END_BLOCK_TOK:
-            if self._is_skip_strategy(trimmed_line):
+            # skip empty lines, and comments (which are line separated)
+            if not trimmed_line or self._is_comment(trimmed_line):
                 continue
             logger.info(f"Applying {header} entry: {trimmed_line}")
-            strategy(trimmed_line, ...)
+            strategy(trimmed_line)
 
-    def _handle_if_pkg_block(self, header: str, strategy: Callable[[str, ...], None], sti: TextIO) -> None:
+    def _handle_if_pkg_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
         self._handle_if_block(
             strategy, sti, header, "if-pkg:::",
             lambda packages: all(map(shutil.which, packages))
         )
 
-    def _handle_if_not_pkg_block(self, header: str, strategy: Callable[[str, ...], None], sti: TextIO) -> None:
+    def _handle_if_not_pkg_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
         self._handle_if_block(
             strategy, sti, header, "if-not-pkg:::",
             lambda packages: not all(map(shutil.which, packages))
         )
 
-    def _handle_if_profile_block(self, header: str, strategy: Callable[[str, ...], None], sti: TextIO) -> None:
+    def _handle_if_profile_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
         self._handle_if_block(
             strategy, sti, header, "if-profile:::",
             lambda profiles: self.profile in profiles
         )
 
-    def _handle_if_not_profile_block(self, header: str, strategy: Callable[[str, ...], None], sti: TextIO) -> None:
+    def _handle_if_not_profile_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
         self._handle_if_block(
             strategy, sti, header, "if-not-profile:::",
             lambda profiles: self.profile not in profiles
         )
 
-    def _handle_ignore_lines(self, entry: str, *args: ...) -> None:
+    def _handle_ignore_lines(self, entry: str) -> None:
         def flatten_tree(iterable_tree: Tree | VPath) -> Iterable[VPath]:
             """
             Flatten any tree & return all its contents
@@ -661,7 +664,7 @@ class Stowconfig:
         for it in Stowconfig.parse_glob_line(self.parent, entry):
             self.__ignorables.extend(flatten_tree(it))
 
-    def _handle_redirect_lines(self, entry: str, *args: ...) -> None:
+    def _handle_redirect_lines(self, entry: str) -> None:
         entry_list = shlex.split(entry)
         # delimiter should be in the middle as :::
         if len(entry_list) != 3 or entry_list[1].strip() != ":::":
@@ -680,53 +683,41 @@ class Stowconfig:
     def _is_comment(self, line: str) -> bool:
         return line.startswith(Stowconfig.COMMENT_PREFIX_TOK)
 
-    def _is_skip_strategy(self, trimmed_line: str) -> bool:
-        """
-        skip empty lines, and comments (which are line separated)
-        """
-        return not trimmed_line or self._is_comment(trimmed_line)
-
-    def _get_strategy(self, current_strategy: Callable[[str, Callable, TextIO], None], trimmed_line) -> tuple[bool, Callable[[str, Callable, TextIO], None]]:
-        """
-        Get a (True, new_strategy) if trimmed_line matches any valid header. Otherwise, return (False, current_strategy).
-        :param trimmed_line: current line under scrutiny
-        :return: bool, any valid strategy
-        """
-        match trimmed_line:
-            case Stowconfig.IGNORE_SECTION_HEADER_TOK:
-                return True, self._handle_ignore_lines
-            case Stowconfig.REDIRECT_SECTION_HEADER_TOK:
-                return True, self._handle_redirect_lines
-            case _:
-                # handle cases that are not computable @ 'compile' time
-                if Stowconfig.IF_PKG_BLOCK_REGEX.fullmatch(trimmed_line):
-                    return True, self._handle_if_pkg_block
-                if Stowconfig.IF_NOT_PKG_BLOCK_REGEX.fullmatch(trimmed_line):
-                    return True, self._handle_if_not_pkg_block
-                if Stowconfig.IF_PROFILE_BLOCK_REGEX.fullmatch(trimmed_line):
-                    return True, self._handle_if_profile_block
-                if Stowconfig.IF_NOT_PROFILE_BLOCK_REGEX.fullmatch(trimmed_line):
-                    return True, self._handle_if_not_profile_block
-        return False, current_strategy
-
     def _parse(self) -> None:
         """
         Resolve the structure of a STOWIGNORE_FN & cache results.
         """
         self.__cached = True
-        strategy: Callable[[str, Callable, TextIO], None] = self._handle_ignore_lines
+        strategy: Callable[[str], None] = self._handle_ignore_lines
         with open(self.fstowignore, "r", encoding="UTF-8") as sti:
             for line in sti:
                 trimmed_line = line.strip()
-                if self._is_skip_strategy(trimmed_line):
+                # skip empty lines, and comments (which are line separated)
+                if not trimmed_line or self._is_comment(trimmed_line):
                     continue
+                match trimmed_line:
+                    case Stowconfig.IGNORE_SECTION_HEADER_TOK:
+                        strategy = self._handle_ignore_lines
+                        continue  # eat line because it's a header
+                    case Stowconfig.REDIRECT_SECTION_HEADER_TOK:
+                        strategy = self._handle_redirect_lines
+                        continue  # eat line because it's a header
+                    case _:
+                        # handle cases that are not computable @ 'compile' time
+                        if Stowconfig.IF_PKG_BLOCK_REGEX.fullmatch(trimmed_line):
+                            self._handle_if_pkg_block(strategy, trimmed_line, sti)
+                            continue  # eat line because it's an [end] tok
+                        if Stowconfig.IF_NOT_PKG_BLOCK_REGEX.fullmatch(trimmed_line):
+                            self._handle_if_not_pkg_block(strategy, trimmed_line, sti)
+                            continue  # eat line because it's an [end] tok
+                        if Stowconfig.IF_PROFILE_BLOCK_REGEX.fullmatch(trimmed_line):
+                            self._handle_if_profile_block(strategy, trimmed_line, sti)
+                            continue  # eat line because it's an [end] tok
+                        if Stowconfig.IF_NOT_PROFILE_BLOCK_REGEX.fullmatch(trimmed_line):
+                            self._handle_if_not_profile_block(strategy, trimmed_line, sti)
+                            continue  # eat line because it's an [end] tok
 
-                is_header, strategy = self._get_strategy(strategy, trimmed_line)
-                # skip header directives
-                if is_header:
-                    continue
-
-                strategy(trimmed_line, strategy, sti)
+                strategy(trimmed_line)
 
     @property
     def ignorables(self) -> Iterable[VPath]:
@@ -801,6 +792,7 @@ class Stower:
         Prompt the user for an input, [Y/n].
         @return: True if user selects yes, False for any other case.
         """
+        logger.info(f"{self.src_tree.repr()}")
         logger.info("The following action is not reversible.")
         while True:
             try:
@@ -865,12 +857,13 @@ class Stower:
         #  trim empty branches to avoid creation of directories whose contents are ignored entirely
         self.src_tree.vtrim_branch_rule(lambda br, __: len(br) == 0)
 
+        if dry_run:
+            logger.info(f"{self.src_tree.repr()}")
         # optional seventh step: ask for user permission if interactive
         # - if the current run is interactive, must be false
         # - if the current run is interactive, and is a dry run, must be false
         # - if the current run isn't interactive, and is a dry run, must be false
         # - if the current run isn't interactive, and isn't a dry run, must be true
-        logger.info(f"{self.src_tree.repr()}")
         approved = not interactive and not dry_run
         if not dry_run and interactive:
             approved = self._prompt()
