@@ -792,7 +792,6 @@ class Stower:
         Prompt the user for an input, [Y/n].
         @return: True if user selects yes, False for any other case.
         """
-        logger.info(f"{self.src_tree.repr()}")
         logger.info("The following action is not reversible.")
         while True:
             try:
@@ -857,8 +856,7 @@ class Stower:
         #  trim empty branches to avoid creation of directories whose contents are ignored entirely
         self.src_tree.vtrim_branch_rule(lambda br, __: len(br) == 0)
 
-        if dry_run:
-            logger.info(f"{self.src_tree.repr()}")
+        logger.info(f"{self.src_tree.repr()}")
         # optional seventh step: ask for user permission if interactive
         # - if the current run is interactive, must be false
         # - if the current run is interactive, and is a dry run, must be false
