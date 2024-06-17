@@ -42,7 +42,7 @@ Let's start with a dry run; this will display what is ready to be symlinked to t
 It won't affect your filesystem! \
 We're going to be explicit here about our destination (`--target <path>`):
 ```bash
-~/.../dotfiles (changes) $ ../pstow.py --target ~ status
+~/.../dotfiles $ ../pstow.py --target ~ status
 # ... output too long to print here
 ```
 *Nice.* \
@@ -51,7 +51,7 @@ in relation to the root dotfiles directory.
 We're getting alot of output, mostly from directories we definitely don't want to symlink. \
 Lets change that! We're going to be verbose, manually excluding everything, once again from the shell:
 ```bash
- ~/.../dotfiles (changes) $ ../pstow.py --exclude .config/ .git/ scripts/ manpages/ --target ~ status
+ ~/.../dotfiles $ ../pstow.py --exclude .config/ .git/ scripts/ manpages/ --target ~ status
   dotfiles/
  dotfiles/
 ───> .gitconfig
@@ -80,7 +80,7 @@ scripts/
 ```
 Now let's run the first command we run originally:
 ```bash
- ~/.../dotfiles (changes) $ ../pstow.py --target ~ status
+ ~/.../dotfiles $ ../pstow.py --target ~ status
  dotfiles/
 ───> .gitconfig
 ───> .has-run
@@ -107,7 +107,7 @@ scripts/
 !!scripts/.*rc
 ```
 ```bash
- ~/.../dotfiles (changes) $ ../pstow.py --target ~ status
+ ~/.../dotfiles $ ../pstow.py --target ~ status
  dotfiles/
 ───> .gitconfig
 ───> .has-run
@@ -153,7 +153,7 @@ scripts/
 scripts/.*rc ::: .
 ```
 ```bash
- ~/.../dotfiles (changes) $ ../pstow.py --target ~ status
+ ~/.../dotfiles $ ../pstow.py --target ~ status
  dotfiles/
 ───> .gitconfig
 ───> .has-run
@@ -233,10 +233,10 @@ scripts/
 
 [redirect]
 scripts/.*rc ::: .
-scripts/.jwmrc ::: .mozilla/firefox/*.default-release*/
+scripts/.jwmrc ::: .mozilla/firefox/*/
 ```
 ```bash
- ~/.../dotfiles (changes) $ ../pstow.py --target ~ status
+ ~/.../dotfiles $ ../pstow.py --target ~ status
  dotfiles/
 ───> .gitconfig
 ───> .has-run
@@ -279,9 +279,9 @@ The first directive checks for the existence of packages in non-interactive `$PA
 A subshell is *never* opened, so it's (probably) secure to be as wack as you want. \
 You can include multiple packages to check. \
 The second directive checks the inverse, i.e. the absence of packages in `$PATH`. \
-The third directive checks the current active `profile`, and runs it is. \
-The fourth directive checks the current active `profile`, and runs if it isn't.
-Here's some example usage; update your `.stowconfig` to look like this, & run as usual:
+The third directive checks the current active `profile`, and runs if it is. \
+The fourth directive checks the current active `profile`, and runs if it isn't. \
+Example usage; update your `.stowconfig` to look like this, & run as usual:
 ```stowconfig
 *.md
 .git/
@@ -304,7 +304,7 @@ scripts/.*rc ::: .
 scripts/.jwmrc ::: .mozilla/firefox/*/
 ```
 ```bash
- ~/.../dotfiles (changes) $ ../pstow.py --target ~ status
+ ~/.../dotfiles $ ../pstow.py --target ~ status
 WARNING: Couldn't fulfill condition for [if-not-pkg:::nano]. Skipping block contents...
 Applying [if-not-pkg:::vim] entry: scripts/.vimrc
 WARNING: Couldn't fulfill condition for [if-pkg:::zsh some-other-package]. Skipping block contents...
@@ -372,7 +372,7 @@ scripts/.*rc ::: .
 
 ...and run like this, setting the current profile in the process:
 ```bash
- ~/.../dotfiles (changes) $ ../pstow.py --profile work --target ~ status
+ ~/.../dotfiles $ ../pstow.py --profile work --target ~ status
 WARNING: Couldn't fulfill condition for [if-not-pkg:::nano]. Skipping block contents...
 Applying [if-not-pkg:::vim] entry: scripts/.vimrc
 WARNING: Couldn't fulfill condition for [if-pkg:::zsh some-other-package]. Skipping block contents...
@@ -485,19 +485,19 @@ some/other/file ::: some/
 
 More details on `if-directives`:
 ```stowconfig
-// all packages MUST exist in non-interactive, non-login $SHELL
+// all packages MUST exist in non-interactive, non-login shell (AND)
 [if-pkg:::pkg1 pkg2 pkg3 ...]
 ...
 [end]
-// all packages MUST NOT exist in non-interactive, non-login $SHELL
+// all packages MUST NOT exist in non-interactive, non-login shell (AND)
 [if-not-pkg:::pkg1 pkg2 pkg3 ...]
 ...
 [end]
-// current profile MUST exist in the profile list 
+// current profile MUST exist in the profile list (CONTAINS) 
 [if-profile:::profile1 profile2 ...]
 ...
 [end]
-// current profile MUST NOT exist in the profile list
+// current profile MUST NOT exist in the profile list (NOT CONTAINS)
 [if-not-profile:::profile1 profile2 ...]
 ...
 [end]
