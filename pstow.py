@@ -492,10 +492,10 @@ class Tree:
             return True
 
         def dlink(srct: Tree, dst: VPath):
-            # if this is not a virtual tree
+            # if this is not a virtual tree (aka, the srct actually exists)
             if srct.absolute().exists():
                 logger.info(f"Creating destination which doesn't exist {dst}")
-                mode = dst.stat(follow_symlinks=False).st_mode
+                mode = srct.absolute().stat(follow_symlinks=False).st_mode
                 dst.mkdir(mode, parents=True, exist_ok=True)
                 return
             logger.info(f"Creating virtual destination which doesn't exist {dst}")
@@ -688,6 +688,7 @@ class Stowconfig:
         Resolve the structure of a STOWIGNORE_FN & cache results.
         """
         self.__cached = True
+        self.__redirectables_sanitized = False
         strategy: Callable[[str], None] = self._handle_ignore_lines
         with open(self.fstowignore, "r", encoding="UTF-8") as sti:
             for line in sti:
