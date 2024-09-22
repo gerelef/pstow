@@ -761,7 +761,7 @@ class Stowconfig:
         # the fact that we're forced to use os.path.join, and not VPath(tld / p)
         #  is evil, and speaks to the fact that the development of these two modules (iglob & Path)
         #  was completely disjointed
-        for p in iglob(os.path.join(parent / tail), recursive=True):
+        for p in iglob(os.path.join(parent / tail), recursive=True, include_hidden=True):
             yield parse_entry(p)
         return
 
