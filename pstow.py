@@ -1001,9 +1001,13 @@ def main():
 
         Stowconfig.ERR_STRATEGY = sys.exit if args.enforce_integrity else None
 
+        # make `args.target` Tree.REAL_USER_HOME if it's a dry run & the target
+        #  was NOT given. Otherwise, leave it as - is. We want to fail dry runs
+        #  if the given path is non-existent
+        args.target = Tree.REAL_USER_HOME if is_dry and not args.target else args.target
         # source & destination MUST exist & be valid!
         source = VPath(args.source).resolve(strict=True)
-        destination = VPath(args.target if not is_dry else Tree.REAL_USER_HOME).resolve(strict=True)
+        destination = VPath(args.target).resolve(strict=True)
         excluded = [VPath(str_path).absolute() for str_path in args.exclude]
 
         Stower(
@@ -1020,9 +1024,9 @@ def main():
     except AbortError:
         logger.warning("Aborting.")
     except FileNotFoundError as e:
-        logger.error(f"Couldn't find file!\n{e}")
+        logger.error(e)
     except PathError as e:
-        logger.error(f"Invalid operation PathError!\n{e}")
+        logger.error(e)
 
 
 if __name__ == "__main__":
