@@ -1,4 +1,11 @@
-#!/usr/bin/env -S python3.12 -S -OO
+#!/usr/bin/env -S python3 -S -OO
+
+import sys
+
+if sys.version_info.minor < 12:
+    print(">= python3.12 required!", file=sys.stderr)
+    sys.exit(1)
+
 # From the documentation:
 # >"If the readline module was loaded,
 #  then input() will use it to provide elaborate line editing and history features."
@@ -10,7 +17,6 @@ import re
 import readline
 import shlex
 import shutil
-import sys
 from argparse import ArgumentParser
 from copy import copy
 from glob import iglob
