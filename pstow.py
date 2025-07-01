@@ -243,9 +243,9 @@ class Tree:
         """
         return list(filter(lambda el: isinstance(el, VPath), self.tree))
 
-    def traverse(self) -> Self:
+    def traverse(self, destination: VPath) -> Self:
         """
-        Traverse the physical directory tree and populate self.
+        Traverse the physical directory tree and populate self in context of the final destination `dest`.
         """
         # the reason for this ugliness, is that os.walk is recursive by nature,
         #  and we do not want to recurse by os.walk, but rather by child.traverse() method
@@ -258,12 +258,12 @@ class Tree:
         for fn in file_names:
             pp = VPath(os.path.join(self.absolute(), fn))
             if fn == Stowconfig.STOWIGNORE_FN:
-                self.__stowignore = Stowconfig(pp, self.profile)
+                self.__stowignore = Stowconfig(destination, pp, self.profile)
 
             self.tree = pp
 
         for dn in directory_names:
-            self.tree = Tree(self.absolute() / dn).traverse()
+            self.tree = Tree(self.absolute() / dn).traverse(destination)
 
         return self
 
@@ -339,7 +339,7 @@ class Tree:
         """
         if isinstance(thing, str):
             thing = VPath(thing).absolute()
-        # if thing is a directory, convert it to a Tree 
+        # if thing is a directory, convert it to a Tree
         if isinstance(thing, VPath) and thing.exists(follow_symlinks=False) and thing.is_dir():
             thing = Tree(thing)
         if isinstance(thing, Tree):
@@ -572,6 +572,8 @@ class Stowconfig:
 
     IF_PKG_BLOCK_REGEX = re.compile(r"\[(if-pkg:::)(.+)]")
     IF_NOT_PKG_BLOCK_REGEX = re.compile(r"\[(if-not-pkg:::)(.+)]")
+    IF_DIRECTORY_BLOCK_REGEX = re.compile(r"\[(if-directory:::)(.+)]")
+    IF_NOT_DIRECTORY_BLOCK_REGEX = re.compile(r"\[(if-not-directory:::)(.+)]")
     IF_PROFILE_BLOCK_REGEX = re.compile(r"\[(if-profile:::)(.+)]")
     IF_NOT_PROFILE_BLOCK_REGEX = re.compile(r"\[(if-not-profile:::)(.+)]")
 
@@ -581,10 +583,12 @@ class Stowconfig:
 
     ERR_STRATEGY: Callable[[Exception], None] = lambda e: None
 
-    def __init__(self, fstowignore: VPath, profile: str = "default"):
+    def __init__(self, destination: VPath, fstowignore: VPath, profile: str = "default"):
         """
+        @param destination: final destination VPath
         @param fstowignore: stowignore VPath
         """
+        self.dest = destination
         self.fstowignore = fstowignore
         self.parent = fstowignore.parent
         self.profile: str = profile
@@ -608,7 +612,7 @@ class Stowconfig:
         )
         if not contents:
             logger.error(
-                f"Skipping invalid {header} block due to unspecified contents after prefix."
+                f"Skipping invalid {header} block due to unresolveable contents after prefix."
             )
             self._skip_entries_until_block_end(sti)
 
@@ -635,6 +639,30 @@ class Stowconfig:
         self._handle_if_block(
             strategy, sti, header, "if-not-pkg:::",
             lambda packages: not all(map(shutil.which, packages))
+        )
+
+    def _handle_if_directory_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
+        does_exist: Callable[[str], bool] = lambda dir_in_question: VPath(self.dest / dir_in_question).exists()
+        is_dir: Callable[[str], bool] = lambda dir_in_question: VPath(self.dest / dir_in_question).is_dir()
+
+        is_existing_directory: Callable[[str], bool] = lambda dir_in_question: \
+            does_exist(dir_in_question) and is_dir(dir_in_question)
+
+        self._handle_if_block(
+            strategy, sti, header, "if-directory:::",
+            lambda path_to_dirs: all(map(is_existing_directory, path_to_dirs))
+        )
+
+    def _handle_if_not_directory_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
+        does_not_exist: Callable[[str], bool] = lambda dir_in_question: not VPath(self.dest / dir_in_question).exists()
+        is_not_dir: Callable[[str], bool] = lambda dir_in_question: VPath(self.dest / dir_in_question).is_file()
+
+        is_nonexistent_directory: Callable[[str], bool] = lambda dir_in_question: \
+            does_not_exist(dir_in_question) or is_not_dir(dir_in_question)
+
+        self._handle_if_block(
+            strategy, sti, header, "if-not-directory:::",
+            lambda path_to_dirs: all(map(is_nonexistent_directory, path_to_dirs))
         )
 
     def _handle_if_profile_block(self, strategy: Callable[[str], None], header: str, sti: TextIO) -> None:
@@ -716,6 +744,12 @@ class Stowconfig:
                             continue  # eat line because it's an [end] tok
                         if Stowconfig.IF_NOT_PKG_BLOCK_REGEX.fullmatch(trimmed_line):
                             self._handle_if_not_pkg_block(strategy, trimmed_line, sti)
+                            continue  # eat line because it's an [end] tok
+                        if Stowconfig.IF_DIRECTORY_BLOCK_REGEX.fullmatch(trimmed_line):
+                            self._handle_if_directory_block(strategy, trimmed_line, sti)
+                            continue  # eat line because it's an [end] tok
+                        if Stowconfig.IF_NOT_DIRECTORY_BLOCK_REGEX.fullmatch(trimmed_line):
+                            self._handle_if_not_directory_block(strategy, trimmed_line, sti)
                             continue  # eat line because it's an [end] tok
                         if Stowconfig.IF_PROFILE_BLOCK_REGEX.fullmatch(trimmed_line):
                             self._handle_if_profile_block(strategy, trimmed_line, sti)
@@ -829,8 +863,8 @@ class Stower:
         if self.src == self.dest:
             raise PathError("Source cannot be the same as destination!")
 
-        # first step: create the tree of the entire src folder
-        self.src_tree.traverse()
+        # first step: create the tree of the entire src folder, in context of the final destination dest
+        self.src_tree.traverse(self.dest)
         # early exit for empty trees
         if not len(self.src_tree):
             logger.info(f"{self.src_tree.repr()}")
