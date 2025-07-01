@@ -4,7 +4,7 @@ A spiritual reimplementation of GNU Stow, for tinkerers.
 A fancy way to softlink your dotfiles to their intended destination.
 
 ## Intent
-This started as a [personal](https://github.com/gerelef/) side project in order to facilitate the easy one-line 
+This started as a [personal](https://github.com/gerelef/) side project in order to facilitate the easy one-line
 deployment of my entire dotfile structure.
 
 A critical feature (`redirect`s) was added as a personal requirement. \
@@ -20,8 +20,8 @@ You can see this in use in [my dotfiles](https://github.com/gerelef/dotfiles).
 - Dynamic targets (supported through redirects.)
 - Multiple targets (supported through redirects.)
 - Conditional cases, supported through `if-directives`
-You may opt to avoid conforming to a 1:1 relationship between your dotfiles' directory structure & their target, 
-unlike a `bare` git repo, which is often the most common "recipe".  
+You may opt to avoid conforming to a 1:1 relationship between your dotfiles' directory structure & their target,
+unlike a `bare` git repo, which is often the most common "recipe".
 
 ## Zero-to-hero for .stowconfig & interactive demo
 ### prerequisites
@@ -38,7 +38,7 @@ Create a mock playground by running `./generate-mock-dotfiles.py` while inside t
 ./generate-mock-dotfiles && cd ./dotfiles
 ```
 Now you should be inside the `~/.../pstow/dotfiles` directory. Great! We're ready to get started. \
-Let's start with a dry run; this will display what is ready to be symlinked to the target of your choosing. 
+Let's start with a dry run; this will display what is ready to be symlinked to the target of your choosing.
 It won't affect your filesystem! \
 We're going to be explicit here about our destination (`--target <path>`):
 ```bash
@@ -131,7 +131,7 @@ We have successfully un-ignored our .*rc files! \
 Keep in mind, is that since the file is read top-to-bottom, \
 and the evaluations are being done on a line-by-line basis, \
 if you write the un-ignore line before the ignore declaration, the file won't be unignored. \
-The following step is to move them to the root dotfile directory. 
+The following step is to move them to the root dotfile directory.
 
 Typically, people recommend a bare git repo, but that couples the dotfile structure to the filesystem structure. \
 This makes things coupled, and difficult to keep track of; \
@@ -270,17 +270,13 @@ WARNING: Aborting.
 ```
 Now, we'll start dealing with one of the last topics regarding `.stowconfig`: `if-directives`.
 As of writing, there are four possible directives:
-- `if-pkg`
-- `if-not-pkg`
-- `if-profile`
-- `if-not-profile`
+- `if-pkg`: checks for the existence of packages in non-interactive `$PATH`.
+- `if-not-pkg`: checks the inverse, i.e. the absence of packages in `$PATH`.
+- `if-directory`: checks for the existence of all directories, in relation to the `--target`.
+- `if-not-directory`: checks the inverse, i.e. the absence of directories, in relation to the `--target`.
+- `if-profile`: checks the current active `profile`, and runs if it is.
+- `if-not-profile`: checks the current active `profile`, and runs if it isn't.
 
-The first directive checks for the existence of packages in non-interactive `$PATH`. \
-A subshell is *never* opened, so it's (probably) secure to be as wack as you want. \
-You can include multiple packages to check. \
-The second directive checks the inverse, i.e. the absence of packages in `$PATH`. \
-The third directive checks the current active `profile`, and runs if it is. \
-The fourth directive checks the current active `profile`, and runs if it isn't. \
 Example usage; update your `.stowconfig` to look like this, & run as usual:
 ```stowconfig
 *.md
@@ -461,12 +457,12 @@ scripts/*
     !!scripts/*hobby*
 [end]
 [if-not-profile:::default]
-    // if on any other profile other than default, ignore the .someThing file  
+    // if on any other profile other than default, ignore the .someThing file
     .config/.someThing
 [end]
 // if vim and nano are currently installed, symlink their files
 [if-pkg:::vim nano]
-    !!scripts/.vimrc 
+    !!scripts/.vimrc
     !!scripts/.nanorc
 [end]
 [if-not-pkg:::delta]
@@ -493,7 +489,15 @@ More details on `if-directives`:
 [if-not-pkg:::pkg1 pkg2 pkg3 ...]
 ...
 [end]
-// current profile MUST exist in the profile list (CONTAINS) 
+// all directories MUST exist or be files (AND)
+[if-directory:::path1 path2 path3 ...]
+...
+[end]
+// all directories MUST NOT exist or be files (AND)
+[if-not-directory:::path1 path2 path3 ...]
+...
+[end]
+// current profile MUST exist in the profile list (CONTAINS)
 [if-profile:::profile1 profile2 ...]
 ...
 [end]
