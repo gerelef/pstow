@@ -185,8 +185,8 @@ class Tree:
         """
 
         def indent(indentation: int):
-            tail_length = max((indentation - 1), 0)
-            return f"{"─" * tail_length}{">" if tail_length else ""}"
+            tail_length = max((indentation - 1), 0)  # subtraction because of '└'
+            return f"{"├" if tail_length else ""}{"─" * tail_length}"
 
         def shorten_name(p: Tree | VPath) -> str:
             ps = p.name if isinstance(p, VPath) else f"{p.name}/"
@@ -195,11 +195,19 @@ class Tree:
                 return ps.replace(Tree.REAL_USER_HOME, "~", 1)
             return ps
 
-        out: list[str] = [f"\033[96m{indent(indentation)} \033[1m{shorten_name(self)}\033[0m"]
+        out: list[str] = [f"\033[96m{indent(indentation)}{"┌ " if indentation == 0 else " "}\033[1m{shorten_name(self)}\033[0m"]
         for content in sorted(self.contents):
             out.append(f"\033[96m\033[93m{indent(indentation + 4)} \033[3m{shorten_name(content)}\033[0m")
         for branch in sorted(self.branches, key=lambda br: br.name):
             out.append(branch.repr(indentation=indentation + 4))
+
+        # dirty hack: on the top-level record,
+        #  replace the last record's (a long string \n delimited between each line) "├" character with "└"
+        #  in order to enforce the 'tree' view. it is not worth spending any more time! this will come back to bite us.
+        if indentation == 0:
+            last_records: list[str] = out[-1].split("\n")
+            last_records[-1] = last_records[-1].replace("├", "└")
+            out[-1] = "\n".join(last_records)
         return "\n\033[96m\033[0m".join(out)
 
     @property
