@@ -563,12 +563,17 @@ class RedirectEntry:
         """
         Resolve the redirectable for all valid Tree targets and return them.
         """
-        # if the path doesn't exist, regardless if it's a globbable or not, return its parent
-        if not list(Stowconfig.parse_glob_line(target, self.redirect)):
+        def is_globbable(path: StrPath) -> bool:
+            return any(char in path for char in ['*', '?', '[', ']'])
+
+        # for non-globbables, if the path doesn't exist, return its parent
+        if not is_globbable(self.redirect) and not list(Stowconfig.parse_glob_line(target, self.redirect)):
             yield VPath(os.path.join(target, self.redirect, self.src.name)).expanduser().parent.absolute()
             return
 
         for vp in Stowconfig.parse_glob_line(target, self.redirect):
+            if isinstance(vp, VPath):
+                continue
             yield vp.absolute()
         return
 
@@ -711,12 +716,13 @@ class Stowconfig:
         # delimiter should be in the middle as :::
         if len(entry_list) != 3 or entry_list[1].strip() != ":::":
             logger.error(f"Skipping invalid redirect entry: {entry}")
-            logger.error(f"NOT following the format \"my/path/file.txt\" ::: \"to/another/path/file.txt\" !")
+            logger.error("NOT following the format \"my/path/file.txt\" ::: \"to/another/path/file.txt\" !")
             return None
         self.__redirectables_sanitized = False
         # both are globbable: a group of elements can be matched to a group of targets (N:M relationship)
         #  however, we can't evaluate destination globbables (if they even *are* globbables) right now, since we
         #  don't have the target, which is a requirement for matching this to paths
+        # FIXME: added destination in commit 99de57. this needs cleanin up; logic should be much simpler now
         s_src, s_dst = entry_list[0], entry_list[-1]  # first & last
         for redirected in Stowconfig.parse_glob_line(self.parent, s_src):
             self.__redirectables.append(RedirectEntry(redirected, s_dst))
