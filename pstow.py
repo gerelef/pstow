@@ -1,5 +1,5 @@
 #!/usr/bin/env -S python3 -S -OO
-
+import enum
 import sys
 
 if sys.version_info.minor < 12:
@@ -58,8 +58,25 @@ class PathError(RuntimeError):
 class AbortError(RuntimeError):
     pass
 
+class StowStrategy(enum.Enum):
+    SOFTLINK = "SOFTLINK"
+    HARDLINK = "HARDLINK"
+    # TODO pending copy!
+
 
 class VPath(PosixPath):
+    def __init__(self, *args, stow_strategy=StowStrategy.SOFTLINK):
+        super().__init__(*args)
+        self.__stow_strategy = stow_strategy
+
+    @property
+    def stow_strategy(self) -> StowStrategy:
+        return self.__stow_strategy
+
+    @stow_strategy.setter
+    def stow_strategy(self, new_strategy: StowStrategy) -> Self:
+        self.__stow_strategy = new_strategy
+
     def vredirect(self, __old: StrPath, __new: StrPath) -> Self:
         """
         Virtual redirect; return a new VPath whose __old component is replaced by __new.
@@ -197,7 +214,10 @@ class Tree:
 
         out: list[str] = [f"\033[96m{indent(indentation)}{"┌ " if indentation == 0 else " "}\033[1m{shorten_name(self)}\033[0m"]
         for content in sorted(self.contents):
-            out.append(f"\033[96m\033[93m{indent(indentation + 4)} \033[3m{shorten_name(content)}\033[0m")
+            colour_code = "\033[3m"
+            if content.stow_strategy is StowStrategy.HARDLINK:
+                colour_code = "\033[38;05;131m"
+            out.append(f"\033[96m\033[93m{indent(indentation + 4)} {colour_code}{shorten_name(content)}\033[0m")
         for branch in sorted(self.branches, key=lambda br: br.name):
             out.append(branch.repr(indentation=indentation + 4))
 
@@ -440,6 +460,27 @@ class Tree:
 
         return self
 
+    def vmod_hardlinkables(self, depth: int = math.inf) -> Self:
+        """
+        Virtualy modify all elements to be hardlinked.
+        """
+        if depth < 0:
+            return self
+
+        if self.stowignore:
+            for hardlinkable in self.stowignore.hardlinkables:
+                element_to_hardlink: VPath
+                for element_to_hardlink in filter(lambda vp: vp == hardlinkable, self.contents):
+                    element_to_hardlink.stow_strategy = StowStrategy.HARDLINK
+
+        subtree: Tree
+        for subtree in self.branches:
+            subtree.vmod_hardlinkables(depth=depth - 1)
+
+        return self
+
+
+
     def vtouch(self, src: VPath | Self, dst: Self, depth: int = math.inf) -> Self:
         """
         Create a new file or tree to a new destination.
@@ -518,7 +559,18 @@ class Tree:
         def slink(src: VPath, dst: VPath):
             logger.debug(f"Symlinking {source} to {destination}")
             dst.unlink(missing_ok=True)
-            dst.symlink_to(target=src.resolve(strict=True), target_is_directory=False)
+
+            try:
+                match src.stow_strategy:
+                    case StowStrategy.SOFTLINK:
+                        dst.symlink_to(target=src.resolve(strict=True), target_is_directory=False)
+                    case StowStrategy.HARDLINK:
+                        dst.hardlink_to(target=src.resolve(strict=True))
+            except Exception as e:
+                verb = "softlink"
+                if src.stow_strategy is StowStrategy.HARDLINK:
+                    verb = "hardlink"
+                logger.error(f"Blocking error {e} while trying to {verb} to destination {src.resolve(strict=True)}")
 
         if not target.exists(follow_symlinks=False) and not make_parents:
             raise PathError(f"Expected valid target, but got {target}, which doesn't exist?!")
@@ -582,6 +634,7 @@ class Stowconfig:
     STOWIGNORE_FN = ".stowconfig"
     IGNORE_SECTION_HEADER_TOK = "[ignore]"
     REDIRECT_SECTION_HEADER_TOK = "[redirect]"
+    HARDLINK_SECTION_HEADER_TOK = "[hardlink]"
 
     IF_PKG_BLOCK_REGEX = re.compile(r"\[(if-pkg:::)(.+)]")
     IF_NOT_PKG_BLOCK_REGEX = re.compile(r"\[(if-not-pkg:::)(.+)]")
@@ -609,6 +662,7 @@ class Stowconfig:
         self.__ignorables: list[VPath] = []
         self.__redirectables: list[RedirectEntry] = []
         self.__redirectables_sanitized = False
+        self.__hardlinkables: list[VPath] = []
 
         self.__cached = False
 
@@ -691,25 +745,14 @@ class Stowconfig:
         )
 
     def _handle_ignore_lines(self, entry: str) -> None:
-        def flatten_tree(iterable_tree: Tree | VPath) -> Iterable[VPath]:
-            """
-            Flatten any tree & return all its contents
-            """
-            if isinstance(iterable_tree, VPath) and not iterable_tree.is_dir():
-                return [iterable_tree]
-            contents = []
-            for child in iterable_tree.absolute().iterdir():
-                contents.extend(flatten_tree(child))
-            return contents
-
         # if it's an inverted token, invert & bail!
         if entry.startswith(Stowconfig.UNIGNORE_PREFIX_TOK):
             for it in Stowconfig.parse_glob_line(self.parent, entry.removeprefix(Stowconfig.UNIGNORE_PREFIX_TOK)):
-                [vp in self.__ignorables and self.__ignorables.remove(vp) for vp in flatten_tree(it)]
+                [vp in self.__ignorables and self.__ignorables.remove(vp) for vp in Stowconfig.flatten_tree(it)]
             return
 
         for it in Stowconfig.parse_glob_line(self.parent, entry):
-            self.__ignorables.extend(flatten_tree(it))
+            self.__ignorables.extend(Stowconfig.flatten_tree(it))
 
     def _handle_redirect_lines(self, entry: str) -> None:
         entry_list = shlex.split(entry)
@@ -726,6 +769,10 @@ class Stowconfig:
         s_src, s_dst = entry_list[0], entry_list[-1]  # first & last
         for redirected in Stowconfig.parse_glob_line(self.parent, s_src):
             self.__redirectables.append(RedirectEntry(redirected, s_dst))
+
+    def _handle_hardlink_lines(self, entry: str) -> None:
+        for it in Stowconfig.parse_glob_line(self.parent, entry):
+            self.__hardlinkables.extend(Stowconfig.flatten_tree(it))
 
     # noinspection PyMethodMayBeStatic
     def _is_comment(self, line: str) -> bool:
@@ -750,6 +797,9 @@ class Stowconfig:
                         continue  # eat line because it's a header
                     case Stowconfig.REDIRECT_SECTION_HEADER_TOK:
                         strategy = self._handle_redirect_lines
+                        continue  # eat line because it's a header
+                    case Stowconfig.HARDLINK_SECTION_HEADER_TOK:
+                        strategy = self._handle_hardlink_lines
                         continue  # eat line because it's a header
                     case _:
                         # handle cases that are not computable @ 'compile' time
@@ -801,6 +851,31 @@ class Stowconfig:
             self.__redirectables_sanitized = True
             self.__redirectables = list(filter(lambda t: t.src not in self.ignorables, self.__redirectables))
         return copy(self.__redirectables)
+
+    @property
+    def hardlinkables(self) -> Iterable[VPath]:
+        try:
+            if not self.__cached:
+                self._parse()
+                self.__hardlinkables = list(map(lambda vp: vp.stow_strategy(StowStrategy.HARDLINK), self.__hardlinkables))
+        except Exception as e:
+            logger.error(f"Got {e} while parsing stowconfig.")
+            Stowconfig.ERR_STRATEGY(e)
+
+        # don't leak reference
+        return copy(self.__hardlinkables)
+
+    @staticmethod
+    def flatten_tree(iterable_tree: Tree | VPath) -> Iterable[VPath]:
+        """
+        Flatten any tree & return all its contents
+        """
+        if isinstance(iterable_tree, VPath) and not iterable_tree.is_dir():
+            return [iterable_tree]
+        contents = []
+        for child in iterable_tree.absolute().iterdir():
+            contents.extend(Stowconfig.flatten_tree(child))
+        return contents
 
     @staticmethod
     def parse_glob_line(parent: VPath, tail: StrPath) -> Iterator[VPath | Tree]:
@@ -893,6 +968,8 @@ class Stower:
         #  is eventually added, it's still sane to do this first
         if not self.no_redirects:
             self.src_tree.vmove_redirected(self.dest)
+
+        self.src_tree.vmod_hardlinkables()
 
         # third step: apply preliminary business rule to the tree:
         #  trim explicitly excluded items
@@ -1061,7 +1138,7 @@ def main():
             logger.error("Target must be set for non-dry runs.")
             sys.exit(2)
 
-        Stowconfig.ERR_STRATEGY = sys.exit if args.enforce_integrity else None
+        Stowconfig.ERR_STRATEGY = sys.exit if args.enforce_integrity else lambda _: None
 
         # make `args.target` Tree.REAL_USER_HOME if it's a dry run & the target
         #  was NOT given. Otherwise, leave it as - is. We want to fail dry runs
