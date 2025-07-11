@@ -450,7 +450,7 @@ class Tree:
         if not src:
             raise RuntimeError(f"Cannot btouch non-existent {src} to dst {dst}!")
         if dst not in self:
-            logger.warning(f"Skipping vtouch, we can't place dst {dst} in self {self} because it doesn't belong!")
+            logger.debug(f"Skipping vtouch, we can't place dst {dst} in self {self} because it doesn't belong!")
             return self
 
         # if we're the eventual destination, place src in ourselves, and finish
@@ -499,7 +499,7 @@ class Tree:
 
             if not target.exists(follow_symlinks=False):
                 if not make_parents:
-                    logger.error(f"Cannot softlink src {source} to dst {dst} without making parent dir {target}!")
+                    logger.warning(f"Cannot softlink src {source} to dst {dst} without making parent dir {target}!")
                     return False
                 dlink(tree, target)
 
@@ -516,7 +516,7 @@ class Tree:
             dst.mkdir(0o755, parents=True, exist_ok=True)
 
         def slink(src: VPath, dst: VPath):
-            logger.info(f"Symlinking src {source} to {destination}")
+            logger.debug(f"Symlinking {source} to {destination}")
             dst.unlink(missing_ok=True)
             dst.symlink_to(target=src.resolve(strict=True), target_is_directory=False)
 
@@ -1022,6 +1022,13 @@ def get_arparser() -> ArgumentParser:
         default=False,
         help="Don't respect redirects in any encountered stowconfig."
     )
+    ap.add_argument(
+        "--verbose", "-v",
+        required=False,
+        action="store_true",
+        default=False,
+        help="Enable verbose logging."
+    )
     ap.add_subparsers(dest="command", required=False).add_parser(
         "status",
         help="Echo the current status of the stow source."
@@ -1030,7 +1037,7 @@ def get_arparser() -> ArgumentParser:
     return ap
 
 
-def get_logger() -> logging.Logger:
+def get_logger() -> tuple[logging.Logger, logging.StreamHandler]:
     # create logger
     # noinspection PyShadowingNames
     logger = logging.getLogger()
@@ -1042,11 +1049,12 @@ def get_logger() -> logging.Logger:
     ch.setFormatter(CustomFormatter())
 
     logger.addHandler(ch)
-    return logger
+    return logger, ch
 
 
 def main():
     args = get_arparser().parse_args()
+    channel_handler.setLevel(logging.DEBUG if args.verbose else logging.INFO)
     try:
         is_dry = args.command == "status"
         if not is_dry and not args.target:
@@ -1075,17 +1083,21 @@ def main():
             interactive=not args.yes,
             dry_run=args.command == "status"
         )
+        logger.info("Done.")
     except AbortError:
         logger.warning("Aborting.")
+        sys.exit(1)
     except FileNotFoundError as e:
         logger.error(e)
+        sys.exit(1)
     except PathError as e:
         logger.error(e)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
     # set for really deep trees
     sys.setrecursionlimit(10_000_000)
-    logger = get_logger()
+    logger, channel_handler = get_logger()
 
     main()
