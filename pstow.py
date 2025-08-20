@@ -58,6 +58,7 @@ class PathError(RuntimeError):
 class AbortError(RuntimeError):
     pass
 
+
 class StowStrategy(enum.Enum):
     SOFTLINK = "SOFTLINK"
     HARDLINK = "HARDLINK"
@@ -65,7 +66,7 @@ class StowStrategy(enum.Enum):
 
 
 class VPath(PosixPath):
-    def __init__(self, *args, stow_strategy=StowStrategy.SOFTLINK):
+    def __init__(self, *args, stow_strategy: StowStrategy = StowStrategy.SOFTLINK):
         super().__init__(*args)
         self.__stow_strategy = stow_strategy
 
@@ -212,7 +213,8 @@ class Tree:
                 return ps.replace(Tree.REAL_USER_HOME, "~", 1)
             return ps
 
-        out: list[str] = [f"\033[96m{indent(indentation)}{"┌ " if indentation == 0 else " "}\033[1m{shorten_name(self)}\033[0m"]
+        out: list[str] = [
+            f"\033[96m{indent(indentation)}{"┌ " if indentation == 0 else " "}\033[1m{shorten_name(self)}\033[0m"]
         for content in sorted(self.contents):
             colour_code = "\033[3m"
             if content.stow_strategy is StowStrategy.HARDLINK:
@@ -295,7 +297,7 @@ class Tree:
 
         return self
 
-    def _vtrim_file(self, element: VPath, depth: int = math.inf) -> Self:
+    def _vtrim_file(self, element: VPath, depth: int = math.inf) -> StowStrategy | None:
         """
         Internal usage only.
         Recursively trim the VPath element from the contents.
@@ -303,14 +305,16 @@ class Tree:
         @param element: Element to be removed
         @param depth: Determines the maximum allowed depth to search.
         The default value is infinite.
+        @returns The StowStrategy of the removed element, or None if nothing was trimmed.
         """
         if depth < 0:
-            return self
+            return None
         if element is None:
             raise RuntimeError(f"Expected VPath, got None?!")
         if not isinstance(element, VPath):
             raise RuntimeError(f"Expected VPath, got {type(element)}")
 
+        rcont: VPath
         removable_contents: Iterable[VPath] = list(filter(lambda pp: pp == element, self.contents))
         for rcont in removable_contents:
             # edge case for stowignore files:
@@ -321,13 +325,14 @@ class Tree:
 
         # early exit
         if removable_contents:
-            return self
+            return rcont.stow_strategy
 
         # if we didn't get any matches, the file wasn't ours to trim, check children
         for branch in self.branches:
-            branch._vtrim_file(element, depth=depth - 1)
+            if trimmed_files_strategy := branch._vtrim_file(element, depth=depth - 1):
+                return trimmed_files_strategy
 
-        return self
+        return None
 
     def _vtrim_branch(self, removable_branch: Self, depth: int = math.inf) -> Self:
         """
@@ -361,9 +366,10 @@ class Tree:
 
         return self
 
-    def vtrim_content(self, thing: VPath | Self | StrPath, depth: int = math.inf) -> Self:
+    def vtrim_content(self, thing: VPath | Self | StrPath, depth: int = math.inf) -> StowStrategy | None:
         """
         Driver/wrapper function to avoid duplication of .vtrim_file or .vtrim_branch
+        @return StowStrategy of the removed file, or None if nothing was removed or it was not a file.
         """
         if isinstance(thing, str):
             thing = VPath(thing).absolute()
@@ -372,10 +378,9 @@ class Tree:
             thing = Tree(thing)
         if isinstance(thing, Tree):
             self._vtrim_branch(thing, depth=depth)
-            return self
+            return None
         if isinstance(thing, VPath):
-            self._vtrim_file(thing, depth=depth)
-            return self
+            return self._vtrim_file(thing, depth=depth)
 
         raise TypeError(f"Cannot resolve trim_content for thing {str(thing)} type {type(thing)}!")
 
@@ -448,7 +453,7 @@ class Tree:
             for redirectable in self.stowignore.redirectables:
                 # trim the original vpath from the tree, since it won't be needed anymore in any tree
                 #  this will affect files that are somehow redirected multiple times, and only the last one will be left
-                self.vtrim_content(redirectable.src, depth=depth)
+                redirectable.src.stow_strategy = self.vtrim_content(redirectable.src, depth=depth)
 
                 for resolved_target in redirectable.resolve(target):
                     virtual_target = Tree(resolved_target.absolute().vredirect(target, self.absolute()))
@@ -462,24 +467,27 @@ class Tree:
 
     def vmod_hardlinkables(self, depth: int = math.inf) -> Self:
         """
-        Virtualy modify all elements to be hardlinked.
+        Virtually modify all appropriate elements to be hardlinked.
         """
         if depth < 0:
             return self
 
+        subtree: Tree
         if self.stowignore:
+            recursive_contents = self.contents
+            for subtree in self.branches:
+                recursive_contents += subtree.contents
+
             for hardlinkable in self.stowignore.hardlinkables:
                 element_to_hardlink: VPath
-                for element_to_hardlink in filter(lambda vp: vp == hardlinkable, self.contents):
+                for element_to_hardlink in filter(lambda vp: vp == hardlinkable, recursive_contents):
                     element_to_hardlink.stow_strategy = StowStrategy.HARDLINK
 
-        subtree: Tree
+        # we're traversing children contents so they may perform their own stowignore options
         for subtree in self.branches:
             subtree.vmod_hardlinkables(depth=depth - 1)
 
         return self
-
-
 
     def vtouch(self, src: VPath | Self, dst: Self, depth: int = math.inf) -> Self:
         """
@@ -615,6 +623,7 @@ class RedirectEntry:
         """
         Resolve the redirectable for all valid Tree targets and return them.
         """
+
         def is_globbable(path: StrPath) -> bool:
             return any(char in path for char in ['*', '?', '[', ']'])
 
@@ -767,6 +776,8 @@ class Stowconfig:
         #  don't have the target, which is a requirement for matching this to paths
         # FIXME: added destination in commit 99de57. this needs cleanin up; logic should be much simpler now
         s_src, s_dst = entry_list[0], entry_list[-1]  # first & last
+
+        # why is pycharm's linter getting worse? we do not need to return explicitly from here, None is returned automatically.
         for redirected in Stowconfig.parse_glob_line(self.parent, s_src):
             self.__redirectables.append(RedirectEntry(redirected, s_dst))
 
@@ -857,7 +868,6 @@ class Stowconfig:
         try:
             if not self.__cached:
                 self._parse()
-                self.__hardlinkables = list(map(lambda vp: vp.stow_strategy(StowStrategy.HARDLINK), self.__hardlinkables))
         except Exception as e:
             logger.error(f"Got {e} while parsing stowconfig.")
             Stowconfig.ERR_STRATEGY(e)
@@ -960,7 +970,10 @@ class Stower:
             logger.warning(f"Source tree is empty? Exiting...")
             sys.exit(1)
 
-        # (optional) second step: virtual move all redirectables first
+        # second step: chmod all hardlinkables to their alternative status. this is an explicit step for flexibility
+        self.src_tree.vmod_hardlinkables()
+
+        # (optional) third step: virtual move all redirectables first
         #  this step is done here, so we don't get any invalid entries when ignoring things that
         #  were previously considered redirectables
         #  the fact of the matter is, we'd have to remove ignored files *again* if this were to happen as a seconds step
@@ -969,9 +982,7 @@ class Stower:
         if not self.no_redirects:
             self.src_tree.vmove_redirected(self.dest)
 
-        self.src_tree.vmod_hardlinkables()
-
-        # third step: apply preliminary business rule to the tree:
+        # fourth step: apply preliminary business rule to the tree:
         #  trim explicitly excluded items
         # the reason we're doing the explicitly excluded items first, is simple
         #  the fact is that explicitly --exclude item(s) will most likely be less than the ones in .stowignore
@@ -979,7 +990,7 @@ class Stower:
         for thing in filter(lambda sk: sk in self.src_tree, self.skippables):
             self.src_tree.vtrim_content(thing)
 
-        # fourth step: trim the tree from top to bottom, for every .stowignore we find, we will apply
+        # fifth step: trim the tree from top to bottom, for every .stowignore we find, we will apply
         #  the .stowignore rules only to the same-level trees and/or files, hence, provably and efficiently
         #  trimming all useless paths
         self.src_tree.vtrim_ignored()
@@ -1116,7 +1127,6 @@ def get_arparser() -> ArgumentParser:
 
 def get_logger() -> tuple[logging.Logger, logging.StreamHandler]:
     # create logger
-    # noinspection PyShadowingNames
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
 
